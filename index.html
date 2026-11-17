@@ -85,6 +85,37 @@ ol li{margin:8px 0}
 #loading{padding:40px 0;text-align:center;color:var(--muted)}
 textarea.copybox{font:13px/1.4 ui-monospace,Menlo,monospace;height:140px;margin-top:10px;display:none}
 .mastered .w{text-decoration:line-through;color:var(--muted)}
+@media (max-width:520px){header{flex-direction:column;align-items:stretch}.tabs button{flex:1;padding:6px 4px}}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.stats div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 4px;font-size:13px;color:var(--muted)}
+.stats b{display:block;font:600 28px/1.2 Georgia,serif;color:var(--ink)}
+.chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.hint{font-size:13px;color:var(--muted);margin-top:12px}
+.center{text-align:center;justify-content:center}
+.muted{color:var(--muted)}
+.lbar{display:flex;align-items:center;gap:10px;font-size:13px}
+.bar{flex:1;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .2s}
+.lcard{min-height:260px}
+.lcard .word{font-size:34px}
+.wide{width:100%;padding:12px;font-size:16px}
+.grades{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:16px}
+.grades.two{grid-template-columns:1fr 1fr}
+.grades .btn{display:flex;flex-direction:column;align-items:center;padding:8px 2px}
+.grades small{font-size:11px;color:var(--muted)}
+.grades .g0{border-color:var(--danger);color:var(--danger)}
+.grades .g2{border-color:var(--accent);color:var(--accent)}
+.opts{display:grid;gap:8px;margin-top:16px}
+.opt{text-align:left;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:15px;border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.right{background:var(--accent-soft);border-color:var(--accent)}
+.opt.wrong{border-color:var(--danger);color:var(--danger)}
+.ex.big{font-size:17px;margin-top:12px}
+b.blank{color:var(--accent);letter-spacing:2px}
+mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 2px}
+.ok{color:var(--accent);font-weight:600;margin-top:12px}
+.bad{color:var(--danger);margin-top:12px}
+.d.accent{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -94,6 +125,7 @@ textarea.copybox{font:13px/1.4 ui-monospace,Menlo,monospace;height:140px;margin-
     <nav class="tabs">
       <button data-v="look" class="on">Tra từ</button>
       <button data-v="read">Đọc</button>
+      <button data-v="learn">Học <span id="dueCount"></span></button>
       <button data-v="saved">Đã lưu <span id="savedCount"></span></button>
     </nav>
   </header>
@@ -118,6 +150,11 @@ textarea.copybox{font:13px/1.4 ui-monospace,Menlo,monospace;height:140px;margin-
       <div class="row"><button class="btn" id="readBack">Sửa / dán đoạn khác</button></div>
       <div id="reader" class="reader"></div>
     </div>
+  </section>
+
+  <section id="v-learn" class="view">
+    <div id="learnHome"></div>
+    <div id="learnCard" style="display:none"></div>
   </section>
 
   <section id="v-saved" class="view">
@@ -172,7 +209,8 @@ function load(){
     KEYS=Object.keys(D.L).sort();
     $('dictdata').textContent='';
     $('loading').style.display='none';
-    show(location.hash==='#saved'?'saved':location.hash==='#read'?'read':'look');
+    var hv=location.hash.slice(1);
+    show(['saved','read','learn'].indexOf(hv)>=0?hv:'look');
     renderHist();
     $('q').focus();
   }).catch(function(e){$('loading').textContent='Lỗi nạp dữ liệu: '+e});
@@ -223,6 +261,7 @@ function senses(lemma){
 function entryHTML(lemma, ctx, inSheet){
   var groups=senses(lemma), isSaved=findSaved(lemma)>=0, n=0;
   var h='<div class="whead"><span class="word">'+esc(lemma)+'</span>'+
+    '<button class="btn small" data-speak="'+esc(lemma)+'" title="Phát âm">🔊</button>'+
     '<button class="btn star'+(isSaved?' on':'')+'" data-save="'+esc(lemma)+'">'+(isSaved?'★ Đã lưu':'☆ Lưu từ')+'</button>'+
     '<a class="ext" href="https://translate.google.com/?sl=en&tl=vi&text='+encodeURIComponent(lemma)+'" target="_blank" rel="noopener">Dịch sang tiếng Việt (cần mạng)</a></div>';
   groups.forEach(function(arr,p){
@@ -323,10 +362,16 @@ function saveWord(w, senseIdx, ctx){
   }
   saved.unshift(item); persist(); toast('Đã lưu “'+w+'”'); return true;
 }
-function updateCount(){$('savedCount').textContent=saved.length?'('+saved.length+')':''}
+function updateCount(){
+  $('savedCount').textContent=saved.length?'('+saved.length+')':'';
+  var n=dueList().length+newList().length;
+  $('dueCount').textContent=n?'('+n+')':'';
+}
 
 document.addEventListener('click',function(e){
   var t=e.target;
+  var sp=t.closest('[data-speak]');
+  if(sp){speak(sp.dataset.speak);return}
   var goEl=t.closest('[data-go]');
   if(goEl){
     if(t.closest('#sheet')){openSheet(goEl.dataset.go,$('sheet').dataset.ctx||'')}
@@ -358,6 +403,7 @@ function renderSaved(){
       (s.ctx?'<div class="c">“'+esc(s.ctx)+'”</div>':'')+
       (s.note?'<div class="d" style="color:var(--accent)">Ghi chú: '+esc(s.note)+'</div>':'')+
       '<div class="meta"><span>'+d.toLocaleDateString('vi-VN')+'</span>'+
+      '<span>'+(s.m?'Đã thuộc':!s.due?'Chưa học':s.due<=Date.now()?'Cần ôn hôm nay':'Ôn lại: '+new Date(s.due).toLocaleDateString('vi-VN'))+'</span>'+
       '<button class="linkbtn" data-note="'+esc(s.w)+'">'+(s.note?'Sửa ghi chú':'Thêm ghi chú')+'</button>'+
       '<button class="linkbtn" data-mast="'+esc(s.w)+'">'+(s.m?'Bỏ đánh dấu thuộc':'Đánh dấu đã thuộc')+'</button>'+
       '<button class="linkbtn del" data-del="'+esc(s.w)+'">Xóa</button></div>'+
@@ -483,9 +529,216 @@ function show(v){
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('on',b.dataset.v===v)});
   if(v!=='read')closeSheet();
   if(v==='saved')renderSaved();
+  if(v==='learn'&&!S)renderLearnHome();
   if(v==='read'&&$('readView').style.display!=='none')markReader();
 }
 document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){if(D)show(b.dataset.v)}});
+
+/* ---------- learning: spaced repetition ---------- */
+var NEW_PER_DAY=15, DAY=864e5, S=null;
+var learnMode=store.get('mode','flip');
+var MODES=[['flip','Lật thẻ'],['quiz','Trắc nghiệm'],['type','Điền từ']];
+function speak(w){
+  try{var u=new SpeechSynthesisUtterance(w);u.lang='en-US';speechSynthesis.cancel();speechSynthesis.speak(u)}
+  catch(e){toast('Máy không hỗ trợ phát âm')}
+}
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),x=a[i];a[i]=a[j];a[j]=x}return a}
+function dayStart(t){var d=new Date(t);d.setHours(0,0,0,0);return d.getTime()}
+function newUsed(){var nd=store.get('newday',{});return nd.d===new Date().toDateString()?nd.n:0}
+function bumpNew(){store.set('newday',{d:new Date().toDateString(),n:newUsed()+1})}
+function dueList(){var now=Date.now();return saved.filter(function(s){return !s.m&&s.due&&s.due<=now}).sort(function(a,b){return a.due-b.due})}
+function newList(){var left=Math.max(0,NEW_PER_DAY-newUsed());return saved.filter(function(s){return !s.m&&!s.due}).reverse().slice(0,left)}
+function nextIv(it,g){
+  var reps=it.reps||0, ef=it.ef||2.5, iv=it.iv||0;
+  if(g===0)return 0;
+  if(reps===0)return [0,1,1,4][g];
+  if(reps===1)return [0,2,3,6][g];
+  return Math.max(iv+1,Math.round(iv*[0,1.2,ef,ef*1.3][g]));
+}
+function fmtIv(d){if(d<1)return 'lại ngay';if(d<30)return d+' ngày';if(d<365)return Math.round(d/30)+' tháng';return (d/365).toFixed(1)+' năm'}
+function schedule(it,g){
+  var wasNew=!it.due, ef=it.ef||2.5;
+  if(g===0){it.reps=0;it.lapses=(it.lapses||0)+1;it.ef=Math.max(1.3,ef-0.2);it.iv=0;it.due=Date.now()}
+  else{
+    var iv=nextIv(it,g);
+    it.ef=Math.max(1.3,ef+(g===1?-0.15:g===3?0.15:0));
+    it.reps=(it.reps||0)+1;it.iv=iv;it.due=dayStart(Date.now())+iv*DAY;
+  }
+  if(wasNew)bumpNew();
+  it.last=Date.now();persist();
+}
+function escRe(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function locate(text,w){
+  if(w.indexOf(' ')>=0){var mm=text.match(new RegExp(escRe(w).replace(/ /g,'[\\s-]+'),'i'));return mm?{i:mm.index,n:mm[0].length}:null}
+  var re=/[A-Za-z][A-Za-z'’-]*/g,m;
+  while((m=re.exec(text))){if(bases(clean(m[0])).indexOf(w)>=0)return{i:m.index,n:m[0].length}}
+  return null;
+}
+function exampleFor(it){
+  if(!D.L[it.w])return null;
+  var fs=flatSenses(it.w);
+  fs.sort(function(a,b){return (b.def===it.def)-(a.def===it.def)});
+  for(var i=0;i<fs.length;i++)for(var j=0;j<fs[i].ex.length;j++)if(locate(fs[i].ex[j],it.w))return fs[i].ex[j];
+  return null;
+}
+function ctxText(it){return (it.ctx&&locate(it.ctx,it.w))?it.ctx:(exampleFor(it)||it.ctx||'')}
+function wrapAt(text,loc,open,close,repl){
+  return esc(text.slice(0,loc.i))+open+(repl!=null?repl:esc(text.substr(loc.i,loc.n)))+close+esc(text.slice(loc.i+loc.n));
+}
+function ctxHTML(it){
+  var t=ctxText(it);if(!t)return '';
+  var loc=locate(t,it.w);
+  return '<div class="ex big">“'+(loc?wrapAt(t,loc,'<mark>','</mark>'):esc(t))+'”</div>';
+}
+function distractors(it,n){
+  var out=[],seen={},p=POS_SHORT.indexOf(it.pos);seen[it.def]=1;
+  var pool=shuffle(saved.filter(function(s){return s.w!==it.w}));
+  pool.sort(function(a,b){return (b.pos===it.pos)-(a.pos===it.pos)});
+  pool.forEach(function(s){if(out.length<n&&!seen[s.def]){out.push(s.def);seen[s.def]=1}});
+  for(var tries=0;out.length<n&&tries<2000;tries++){
+    var s=D.S[Math.floor(Math.random()*D.S.length)];
+    if(p>=0&&s[0]!==p)continue;
+    if(s[1].toLowerCase().split(';').indexOf(it.w)>=0)continue;
+    var d=splitGloss(s[2]).def;
+    if(!seen[d]&&d.length<140){out.push(d);seen[d]=1}
+  }
+  return out;
+}
+
+function renderLearnHome(){
+  var box=$('learnHome');
+  if(!saved.length){box.innerHTML='<div class="card"><div class="empty">Chưa có từ để học. Lưu từ ở tab Tra từ hoặc Đọc trước.</div></div>';return}
+  var due=dueList().length, nw=newList().length;
+  var strong=saved.filter(function(s){return s.m||(s.iv||0)>=21}).length;
+  var h='<div class="stats"><div><b>'+due+'</b>cần ôn</div><div><b>'+nw+'</b>từ mới hôm nay</div><div><b>'+strong+'</b>đã nhớ lâu</div></div>';
+  h+='<div class="label">Kiểu học</div><div class="chips">'+MODES.map(function(m){
+    return '<button class="chip'+(learnMode===m[0]?' on':'')+'" data-mode="'+m[0]+'">'+m[1]+'</button>'}).join('')+'</div>';
+  h+='<div class="row"><button class="btn primary" id="lStart"'+(due+nw?'':' disabled')+'>Bắt đầu ('+(due+nw)+' thẻ)</button>'+
+     '<button class="btn" id="lPractice">Luyện tự do</button></div>';
+  if(!due&&!nw){
+    var nx=saved.filter(function(s){return !s.m&&s.due}).map(function(s){return s.due}).sort()[0];
+    h+='<div class="hint">Hôm nay ôn xong rồi.'+(nx?' Lần ôn tới: '+new Date(nx).toLocaleDateString('vi-VN')+'.':'')+'</div>';
+  }
+  h+='<div class="hint">Mỗi thẻ được hẹn ngày ôn lại theo mức nhớ: nhớ càng chắc, càng lâu mới gặp lại. Mỗi ngày tối đa '+NEW_PER_DAY+' từ mới. “Luyện tự do” không làm thay đổi lịch ôn.</div>';
+  box.innerHTML=h;
+}
+function startSession(practice){
+  var list=practice?shuffle(saved.filter(function(s){return !s.m})).slice(0,20):dueList().concat(newList());
+  if(!list.length)return toast('Không có thẻ nào');
+  S={q:list.map(function(s){return s.w}),mode:learnMode,practice:practice,total:list.length,done:0,right:0,miss:{}};
+  $('learnHome').style.display='none';$('learnCard').style.display='block';
+  showCard();
+}
+function endSession(){S=null;$('learnCard').style.display='none';$('learnHome').style.display='block';renderLearnHome()}
+function wordHead(it){
+  return '<div class="whead center"><span class="word">'+esc(it.w)+'</span><button class="btn small" data-speak="'+esc(it.w)+'">🔊</button></div>'+
+    '<div class="muted center" style="text-align:center">'+esc(it.pos)+'</div>';
+}
+function backHTML(it){
+  return '<div class="pos">'+esc(it.pos)+'</div><div class="d">'+esc(it.def)+'</div>'+
+    (it.note?'<div class="d accent">Ghi chú: '+esc(it.note)+'</div>':'')+ctxHTML(it);
+}
+function gradeHTML(it){
+  if(S.practice)return '<div class="grades two"><button class="btn g0" data-g="0">Chưa nhớ<small>phím 1</small></button><button class="btn g2" data-g="2">Nhớ rồi<small>phím 2</small></button></div>';
+  var L=['Quên','Khó','Nhớ','Dễ'];
+  return '<div class="grades">'+L.map(function(l,g){
+    return '<button class="btn g'+g+'" data-g="'+g+'">'+l+'<small>'+fmtIv(nextIv(it,g))+'</small></button>'}).join('')+'</div>';
+}
+function showCard(){
+  while(S.q.length&&findSaved(S.q[0])<0){S.q.shift();S.total--}
+  if(!S.q.length)return finish();
+  var it=saved[findSaved(S.q[0])];
+  S.cur=it;S.answered=false;S.hint=0;S.pendingG=null;
+  var pct=S.total?Math.round(100*S.done/S.total):0;
+  var h='<div class="lbar"><button class="btn small" id="lQuit">Dừng</button><div class="bar"><i style="width:'+pct+'%"></i></div><span class="muted">'+S.done+'/'+S.total+'</span></div><div class="card lcard" id="lc">';
+  if(S.mode==='flip'){
+    h+=wordHead(it)+'<div class="row" style="margin-top:24px"><button class="btn primary wide" data-flip>Hiện nghĩa</button></div>';
+  }else if(S.mode==='quiz'){
+    S.opts=shuffle([it.def].concat(distractors(it,3)));
+    h+=wordHead(it)+'<div class="opts">'+S.opts.map(function(d,i){return '<button class="opt" data-opt="'+i+'">'+(i+1)+'. '+esc(d)+'</button>'}).join('')+'</div><div id="lFb"></div>';
+  }else{
+    var t=ctxText(it), loc=t?locate(t,it.w):null;
+    S.form=loc?t.substr(loc.i,loc.n):it.w;
+    h+='<div class="pos">'+esc(it.pos)+'</div><div class="d">'+esc(it.def)+'</div>'+
+      (loc?'<div class="ex big">“'+wrapAt(t,loc,'<b class="blank">','</b>','_____')+'”</div>':'')+
+      '<div class="row"><input class="note" id="lInput" placeholder="Gõ từ còn thiếu…" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1"><button class="btn primary" id="lCheck">Kiểm tra</button></div>'+
+      '<div class="row"><button class="btn small" id="lHint">Gợi ý</button><button class="btn small" id="lSkip">Không biết</button><span id="lHintTxt" class="muted"></span></div><div id="lFb"></div>';
+  }
+  $('learnCard').innerHTML=h+'</div>';
+  var inp=$('lInput');if(inp)inp.focus();
+}
+function reveal(){if(S.answered)return;S.answered=true;$('lc').innerHTML=wordHead(S.cur)+backHTML(S.cur)+gradeHTML(S.cur)}
+function nextBtn(){return '<div class="row" style="margin-top:16px"><button class="btn primary wide" data-next>Tiếp (Enter)</button></div>'}
+function choose(i){
+  if(S.answered||!S.opts[i])return;S.answered=true;
+  var ok=S.opts[i]===S.cur.def;S.pendingG=ok?2:0;
+  document.querySelectorAll('.opt').forEach(function(b,j){
+    if(S.opts[j]===S.cur.def)b.classList.add('right');else if(j===i)b.classList.add('wrong');
+  });
+  $('lFb').innerHTML=(ok?'<div class="ok">Đúng</div>':'<div class="bad">Chưa đúng</div>')+
+    (S.cur.note?'<div class="d accent">Ghi chú: '+esc(S.cur.note)+'</div>':'')+ctxHTML(S.cur)+nextBtn();
+}
+function checkType(skip){
+  if(S.answered)return;
+  var a=clean($('lInput').value), w=S.cur.w;
+  var ok=!skip&&!!a&&(a===w||a===clean(S.form)||bases(a).indexOf(w)>=0);
+  S.answered=true;S.pendingG=ok?(S.hint?1:2):0;$('lInput').disabled=true;
+  $('lFb').innerHTML=(ok?'<div class="ok">Đúng'+(S.hint?' (có dùng gợi ý)':'')+'</div>':
+    '<div class="bad">Đáp án: <b>'+esc(w)+'</b>'+(clean(S.form)!==w?' (trong câu: '+esc(S.form)+')':'')+'</div>')+
+    '<div class="row"><button class="btn small" data-speak="'+esc(w)+'">🔊 '+esc(w)+'</button></div>'+ctxHTML(S.cur)+nextBtn();
+  var nb=document.querySelector('[data-next]');if(nb)nb.focus();
+}
+function answer(g){
+  if(g==null)return;
+  var w=S.q.shift();
+  if(!S.practice)schedule(S.cur,g);
+  if(g===0){S.miss[w]=1;S.q.splice(Math.min(3,S.q.length),0,w)}
+  else{S.done++;if(!S.miss[w])S.right++}
+  showCard();
+}
+function finish(){
+  var h='<div class="card" style="text-align:center"><div class="word">Xong!</div>'+
+    '<p>Đã ôn '+S.done+' thẻ, nhớ ngay từ lần đầu '+S.right+' thẻ.</p>';
+  if(!S.practice){
+    var nx=saved.filter(function(s){return !s.m&&s.due}).map(function(s){return s.due}).sort()[0];
+    if(nx)h+='<p class="muted">'+(nx<=Date.now()?'Vẫn còn thẻ cần ôn.':'Lần ôn tới: '+new Date(nx).toLocaleDateString('vi-VN'))+'</p>';
+  }
+  $('learnCard').innerHTML=h+'<button class="btn primary" id="lHome">Về trang Học</button></div>';
+  S=null;
+}
+$('v-learn').addEventListener('click',function(e){
+  var t=e.target, b;
+  if((b=t.closest('[data-mode]'))){learnMode=b.dataset.mode;store.set('mode',learnMode);renderLearnHome();return}
+  if(t.id==='lStart')return startSession(false);
+  if(t.id==='lPractice')return startSession(true);
+  if(t.id==='lQuit'||t.id==='lHome')return endSession();
+  if(!S)return;
+  if(t.closest('[data-flip]'))return reveal();
+  if((b=t.closest('[data-g]')))return answer(+b.dataset.g);
+  if((b=t.closest('[data-opt]')))return choose(+b.dataset.opt);
+  if(t.closest('[data-next]'))return answer(S.pendingG);
+  if(t.id==='lCheck')return checkType(false);
+  if(t.id==='lSkip')return checkType(true);
+  if(t.id==='lHint'&&!S.answered){
+    S.hint=Math.min(S.hint+1,S.cur.w.length);
+    $('lHintTxt').textContent=S.cur.w.slice(0,S.hint)+'…  ('+S.cur.w.length+' chữ cái)';
+  }
+});
+document.addEventListener('keydown',function(e){
+  if(!S||!$('v-learn').classList.contains('on'))return;
+  var inInput=e.target.id==='lInput';
+  if(inInput){if(e.key==='Enter'){e.preventDefault();checkType(false)}return}
+  if(/INPUT|TEXTAREA/.test(e.target.tagName))return;
+  var k=e.key, d=parseInt(k,10);
+  if(k===' '||k==='Enter'){
+    e.preventDefault();
+    if(S.mode==='flip'&&!S.answered)reveal();
+    else if(S.mode!=='flip'&&S.answered)answer(S.pendingG);
+  }else if(d>=1&&d<=4){
+    if(S.mode==='flip'&&S.answered){if(S.practice){if(d<=2)answer(d===1?0:2)}else answer(d-1)}
+    else if(S.mode==='quiz'&&!S.answered)choose(d-1);
+  }
+});
 
 var tt;
 function toast(msg){var t=$('toast');t.textContent=msg;t.classList.add('on');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('on')},1800)}
